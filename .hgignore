@@ -1,0 +1,11 @@
+type: glob
+
+pm_to_blib
+blib
+.bs
+.o
+.tar.gz
+Makefile
+XS.c
+MANIFEST
+.bak
