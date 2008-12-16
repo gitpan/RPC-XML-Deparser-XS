@@ -25,10 +25,6 @@ DEPENDENCIES
 
 This module requires these other modules and libraries:
 
-  - Libxml2
-      This is not a perl module. We don't use XML::LibXML.
-      See http://xmlsoft.org/
-
   - glib2
       This is not a perl module.
       See http://www.gnome.org/

@@ -2,8 +2,8 @@
 use ExtUtils::MakeMaker;
 use inc::ExtUtils::MY_Metafile qw(my_metafile);
 
-require 'libxml2_config.pl';
-my $LIBXML2 = libxml2_config();
+require 'glib2_config.pl';
+my $GLIB2 = glib2_config();
 
 my %requires = (
   'RPC::XML'        => 0,
@@ -31,9 +31,8 @@ WriteMakefile(
     ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
       (ABSTRACT_FROM  => 'lib/RPC/XML/Deparser/XS.pm', # retrieve abstract from module
        AUTHOR         => 'Hidden <hidden@example.net>') : ()),
-    LIBS              => $LIBXML2->{LIBS}, # e.g., '-lm'
+    LIBS              => $GLIB2->{LIBS}, # e.g., '-lm'
     DEFINE            => '', # e.g., '-DHAVE_SOMETHING'
-    INC               => $LIBXML2->{CFLAGS}, # e.g., '-I. -I/usr/include/other'
-	# Un-comment this if you add C files to link with later:
-    # OBJECT            => '$(O_FILES)', # link all the C files too
+    INC               => "-I. $GLIB2->{CFLAGS}",
+    OBJECT            => '$(O_FILES)', # link all the C files too
 );

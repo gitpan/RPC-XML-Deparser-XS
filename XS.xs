@@ -5,7 +5,8 @@
 
 #include "ppport.h"
 
-#include <libxml/xmlwriter.h>
+#include "libxwrite.h"
+#include <string.h>
 #include <glib.h>
 
 #ifndef PERL_UNUSED_VAR
@@ -18,7 +19,7 @@
 #else
 #define passert(COND) \
     do {                                                                \
-        if (! (COND)) {                                                 \
+        if (!G_LIKELY((COND))) {					\
             croak("assertion failed: %s(%d): %s", __FILE__, __LINE__, #COND); \
         }                                                               \
     } while (0)
@@ -27,9 +28,8 @@
 
 /* データ型 */
 typedef struct {
-    xmlTextWriterPtr writer;
-    xmlBufferPtr     buffer;
-    SV*              src;
+    XWrite* writer;
+    SV*     src;
 } deparser_context_t;
 
 typedef void(*deparse_func_t)(deparser_context_t* this, const gchar* type, SV* src);
@@ -37,10 +37,6 @@ typedef void(*deparse_func_t)(deparser_context_t* this, const gchar* type, SV* s
 
 /* 定数 */
 static GTree* deparser_functions;
-
-
-/* 補助 */
-static gchar* strdup_sv(const SV* sv);
 
 
 /* 初期化 */
@@ -57,19 +53,8 @@ static void deparse_fault(deparser_context_t* this, const char* type, SV* src);
 static void deparse_request(deparser_context_t* this, const char* type, SV* src);
 static void deparse_response(deparser_context_t* this, const char* type, SV* src);
 
-
 /* 実装 */
-static gchar* strdup_sv(const SV* sv) {
-    char*  tmp;
-    STRLEN len;
-
-    tmp = SvPV((SV*)sv, len);
-    return g_strndup(tmp, len);
-}
-
 static void init_module() {
-    LIBXML_TEST_VERSION;
-
     deparser_functions = g_tree_new((gpointer)&strcmp);
 
 #define REGISTER_DEPARSER_FUNC(TYPE, FUNC)		\
@@ -92,13 +77,13 @@ static void init_module() {
 static void deparse_rpc_xml(deparser_context_t* this, SV* src) {
     const gchar* reftype;
 
-    if (!SvROK(src)) {
+    if (!G_LIKELY(SvROK(src))) {
 	croak("deparse_rpc_xml: src is not an RV");
     }
 
     reftype = sv_reftype(SvRV(src), TRUE);
 
-    if (g_str_has_prefix(reftype, "RPC::XML::")) {
+    if (G_LIKELY(g_str_has_prefix(reftype, "RPC::XML::"))) {
 	const gchar*         type    = reftype + strlen("RPC::XML::");
 	const deparse_func_t deparse = g_tree_lookup(deparser_functions, type);
 	
@@ -116,28 +101,25 @@ static void deparse_rpc_xml(deparser_context_t* this, SV* src) {
 
 static void deparse_simple_type(deparser_context_t* this, const char* type, SV* src) {
     SV*    val;
-    gchar* copy;
 
     passert(SvROK(src));
     val = SvRV(src);
 
-    if (strcmp(type, "datetime_iso8601") == 0) {
+    if (G_UNLIKELY(strcmp(type, "datetime_iso8601") == 0)) {
 	/* 特例 */
-	xmlTextWriterStartElement(this->writer, BAD_CAST "dateTime.iso8601");
+	xwrite_start_element(this->writer, "dateTime.iso8601");
+	xwrite_add_text(this->writer, SvPV_nolen(val));
+	xwrite_end_element(this->writer, "dateTime.iso8601");
     }
     else {
-	xmlTextWriterStartElement(this->writer, BAD_CAST type);
+	xwrite_start_element(this->writer, type);
+	xwrite_add_text(this->writer, SvPV_nolen(val));
+	xwrite_end_element(this->writer, type);
     }
-
-    copy = strdup_sv(val);
-    xmlTextWriterWriteString(this->writer, copy);
-    g_free(copy);
-
-    xmlTextWriterEndElement(this->writer);
 }
 
 static void deparse_array(deparser_context_t* this, const char* type, SV* src) {
-    I32 i;
+    I32 i, len;
     AV* array;
 
     PERL_UNUSED_VAR(type);
@@ -145,22 +127,23 @@ static void deparse_array(deparser_context_t* this, const char* type, SV* src) {
     passert(SvROK(src) && SvTYPE(SvRV(src)) == SVt_PVAV);
     array = (AV*)SvRV(src);
 
-    xmlTextWriterStartElement(this->writer, BAD_CAST "array");
-    xmlTextWriterStartElement(this->writer, BAD_CAST "data");
+    xwrite_start_element(this->writer, "array");
+    xwrite_start_element(this->writer, "data");
 
-    for (i = 0; i <= av_len((AV*)array); i++) {
+    len = av_len((AV*)array);
+    for (i = 0; G_LIKELY(i <= len); i++) {
 	SV** e;
 
 	e = av_fetch((AV*)array, i, FALSE);
 	passert(e != NULL);
 
-	xmlTextWriterStartElement(this->writer, BAD_CAST "value");
+	xwrite_start_element(this->writer, "value");
 	deparse_rpc_xml(this, *e);
-	xmlTextWriterEndElement(this->writer); /* value */
+	xwrite_end_element(this->writer, "value");
     }
 
-    xmlTextWriterEndElement(this->writer); /* data */
-    xmlTextWriterEndElement(this->writer); /* array */
+    xwrite_end_element(this->writer, "data");
+    xwrite_end_element(this->writer, "array");
 }
 
 static void deparse_struct(deparser_context_t* this, const char* type, SV* src) {
@@ -171,7 +154,7 @@ static void deparse_struct(deparser_context_t* this, const char* type, SV* src) 
     passert(SvROK(src) && SvTYPE(SvRV(src)) == SVt_PVHV);
     hash = (HV*)SvRV(src);
 
-    xmlTextWriterStartElement(this->writer, BAD_CAST "struct");
+    xwrite_start_element(this->writer, "struct");
 
     hv_iterinit((HV*)hash);
     while (TRUE) {
@@ -181,30 +164,25 @@ static void deparse_struct(deparser_context_t* this, const char* type, SV* src) 
 	
 	e = hv_iternextsv(hash, (char**)&key, &keylen);
 
-	if (e == NULL) {
+	if (G_UNLIKELY(e == NULL)) {
 	    break;
 	}
 	else {
-	    xmlTextWriterStartElement(this->writer, BAD_CAST "member");
+	    xwrite_start_element(this->writer, "member");
 
-	    xmlTextWriterStartElement(this->writer, BAD_CAST "name");
-	    do {
-		gchar* copy = g_strndup(key, keylen);
+	    xwrite_start_element(this->writer, "name");
+	    xwrite_add_text(this->writer, key);
+	    xwrite_end_element(this->writer, "name");
 
-		xmlTextWriterWriteString(this->writer, copy);
-		g_free(copy);
-	    } while (0);
-	    xmlTextWriterEndElement(this->writer); /* name */
-
-	    xmlTextWriterStartElement(this->writer, BAD_CAST "value");
+	    xwrite_start_element(this->writer, "value");
 	    deparse_rpc_xml(this, e);
-	    xmlTextWriterEndElement(this->writer); /* value */
+	    xwrite_end_element(this->writer, "value");
 	    
-	    xmlTextWriterEndElement(this->writer); /* member */
+	    xwrite_end_element(this->writer, "member");
 	}
     }
 
-    xmlTextWriterEndElement(this->writer); /* struct */
+    xwrite_end_element(this->writer, "struct");
 }
 
 static void deparse_base64(deparser_context_t* this, const char* type, SV* src) {
@@ -212,7 +190,7 @@ static void deparse_base64(deparser_context_t* this, const char* type, SV* src) 
 
     PERL_UNUSED_VAR(type);
 
-    xmlTextWriterStartElement(this->writer, BAD_CAST "base64");
+    xwrite_start_element(this->writer, "base64");
 
     do {
 	SV*    value;
@@ -232,24 +210,24 @@ static void deparse_base64(deparser_context_t* this, const char* type, SV* src) 
 	SPAGAIN;
 	value = POPs;
 	buf   = SvPV(value, buf_len);
-	xmlTextWriterWriteBase64(this->writer, buf, 0, buf_len);
+	xwrite_add_base64(this->writer, buf, buf_len);
 	PUTBACK;
 
 	FREETMPS;
 	LEAVE;
     } while (0);
 
-    xmlTextWriterEndElement(this->writer); /* base64 */
+    xwrite_end_element(this->writer, "base64");
 }
 
 static void deparse_fault(deparser_context_t* this, const char* type, SV* src) {
-    xmlTextWriterStartElement(this->writer, BAD_CAST "fault");
-    xmlTextWriterStartElement(this->writer, BAD_CAST "value");
+    xwrite_start_element(this->writer, "fault");
+    xwrite_start_element(this->writer, "value");
 
     deparse_struct(this, type, src);
 
-    xmlTextWriterEndElement(this->writer); /* value */
-    xmlTextWriterEndElement(this->writer); /* fault */
+    xwrite_end_element(this->writer, "value");
+    xwrite_end_element(this->writer, "fault");
 }
 
 static void deparse_request(deparser_context_t* this, const char* type, SV* src) {
@@ -260,23 +238,19 @@ static void deparse_request(deparser_context_t* this, const char* type, SV* src)
     passert(SvROK(src) && SvTYPE(SvRV(src)) == SVt_PVHV);
     hash = (HV*)SvRV(src);
 
-    xmlTextWriterStartDocument(this->writer, NULL, NULL, NULL);
-    xmlTextWriterStartElement(this->writer, BAD_CAST "methodCall");
+    xwrite_start_document(this->writer, NULL, NULL, NULL);
+    xwrite_start_element(this->writer, "methodCall");
     
     do {
 	SV**   sv_name_ptr = hv_fetch((HV*)hash, "name", strlen("name"), FALSE);
 	SV*    sv_name;
-	gchar* name;
 
 	passert(sv_name_ptr != NULL);
 	sv_name = *sv_name_ptr;
-	name    = strdup_sv(sv_name);
 
-	xmlTextWriterStartElement(this->writer, BAD_CAST "methodName");
-	xmlTextWriterWriteString(this->writer, name);
-	xmlTextWriterEndElement(this->writer); /* methodName */
-
-	g_free(name);
+	xwrite_start_element(this->writer, "methodName");
+	xwrite_add_text(this->writer, SvPV_nolen(sv_name));
+	xwrite_end_element(this->writer, "methodName");
     } while (0);
 
     do {
@@ -288,24 +262,24 @@ static void deparse_request(deparser_context_t* this, const char* type, SV* src)
 	passert(SvROK(*sv_args_ptr) && SvTYPE(SvRV(*sv_args_ptr)) == SVt_PVAV);
 	av_args = (AV*)SvRV(*sv_args_ptr);
 
-	xmlTextWriterStartElement(this->writer, BAD_CAST "params");
+	xwrite_start_element(this->writer, "params");
 	for (i = 0; i <= av_len((AV*)av_args); i++) {
 	    SV** argp;
 
 	    argp = av_fetch((AV*)av_args, i, FALSE);
 	    passert(argp != NULL);
 	    
-	    xmlTextWriterStartElement(this->writer, BAD_CAST "param");
-	    xmlTextWriterStartElement(this->writer, BAD_CAST "value");
+	    xwrite_start_element(this->writer, "param");
+	    xwrite_start_element(this->writer, "value");
 	    deparse_rpc_xml(this, *argp);
-	    xmlTextWriterEndElement(this->writer); /* value */
-	    xmlTextWriterEndElement(this->writer); /* param */
+	    xwrite_end_element(this->writer, "value");
+	    xwrite_end_element(this->writer, "param");
 	}
-	xmlTextWriterEndElement(this->writer); /* params */
+	xwrite_end_element(this->writer, "params");
     } while (0);
     
-    xmlTextWriterEndElement(this->writer); /* methodCall */
-    xmlTextWriterEndDocument(this->writer);
+    xwrite_end_element(this->writer, "methodCall");
+    xwrite_end_document(this->writer);
 }
 
 static void deparse_response(deparser_context_t* this, const char* type, SV* src) {
@@ -316,8 +290,8 @@ static void deparse_response(deparser_context_t* this, const char* type, SV* src
     passert(SvROK(src) && SvTYPE(SvRV(src)) == SVt_PVHV);
     hash = (HV*)SvRV(src);
 
-    xmlTextWriterStartDocument(this->writer, NULL, NULL, NULL);
-    xmlTextWriterStartElement(this->writer, BAD_CAST "methodResponse");
+    xwrite_start_document(this->writer, NULL, NULL, NULL);
+    xwrite_start_element(this->writer, "methodResponse");
     
     do {
 	SV** sv_value_ptr = hv_fetch((HV*)hash, "value", strlen("value"), FALSE);
@@ -334,18 +308,18 @@ static void deparse_response(deparser_context_t* this, const char* type, SV* src
 	    deparse_fault(this, reftype, sv_value);
 	}
 	else {
-	    xmlTextWriterStartElement(this->writer, BAD_CAST "params");
-	    xmlTextWriterStartElement(this->writer, BAD_CAST "param");
-	    xmlTextWriterStartElement(this->writer, BAD_CAST "value");
+	    xwrite_start_element(this->writer, "params");
+	    xwrite_start_element(this->writer, "param");
+	    xwrite_start_element(this->writer, "value");
 	    deparse_rpc_xml(this, sv_value);
-	    xmlTextWriterEndElement(this->writer); /* value */
-	    xmlTextWriterEndElement(this->writer); /* param */
-	    xmlTextWriterEndElement(this->writer); /* params */
+	    xwrite_end_element(this->writer, "value");
+	    xwrite_end_element(this->writer, "param");
+	    xwrite_end_element(this->writer, "params");
 	}
     } while (0);
     
-    xmlTextWriterEndElement(this->writer); /* methodResponse */
-    xmlTextWriterEndDocument(this->writer);
+    xwrite_end_element(this->writer, "methodResponse");
+    xwrite_end_document(this->writer);
 }
 
 
@@ -409,13 +383,6 @@ deparse_rpc_xml(SV* src)
     OUTPUT:
         RETVAL
 
-int
-libxml_version(SV* pkg = NULL)
-  CODE:
-    RETVAL = (LIBXML_VERSION);
-  OUTPUT:
-    RETVAL
-
 
 MODULE = RPC::XML::Deparser::XS       PACKAGE = RPC::XML::Deparser::XS::Writer
 
@@ -434,19 +401,9 @@ new_string_writer(char* class, SV* src)
         if (this == NULL) {
             croak("failed to allocate deparser_context_t");
         }
-        bzero(this, sizeof(deparser_context_t));
 
-        this->buffer = xmlBufferCreate();
-        if (this->buffer == NULL) {
-	    free(this);
-	    croak("Failed to create XML string buffer");
-	}
-
-        this->writer = xmlNewTextWriterMemory(
-	    this->buffer, /* buffer      */
-	    0);           /* compression */
+        this->writer = xwrite_new(0);
         if (this->writer == NULL) {
-	    xmlBufferFree(this->buffer);
             free(this);
             croak("Failed to create XML string writer");
         }
@@ -461,9 +418,15 @@ new_string_writer(char* class, SV* src)
 SV*
 run(deparser_context_t* this)
     CODE:
-        deparse_rpc_xml(this, this->src);
-        xmlTextWriterFlush(this->writer);
-        RETVAL = newSVpvn(xmlBufferContent(this->buffer), xmlBufferLength(this->buffer));
+        do {
+	    gchar* tmp;
+
+	    deparse_rpc_xml(this, this->src);
+
+	    tmp = xwrite_get_result(this->writer);
+	    RETVAL = newSVpv(tmp, 0);
+	    g_free(tmp);
+	} while (0);
 
     OUTPUT:
         RETVAL
@@ -471,7 +434,6 @@ run(deparser_context_t* this)
 void
 DESTROY(deparser_context_t* this)
     CODE:
-        xmlFreeTextWriter(this->writer);
-        xmlBufferFree(this->buffer);
+        xwrite_free(this->writer);
         SvREFCNT_dec(this->src);
         free(this);

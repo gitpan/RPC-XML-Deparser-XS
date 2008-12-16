@@ -1,6 +1,6 @@
 # http://module-build.sourceforge.net/META-spec.html
 name:         RPC-XML-Deparser-XS
-version:      0.01
+version:      0.02
 version_from: lib/RPC/XML/Deparser/XS.pm
 installdirs:  site
 author:       Hidden <hidden@example.net>

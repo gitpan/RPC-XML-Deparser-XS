@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-sub libxml2_config {
+sub glib2_config {
     local $| = 1; # autoflush
 
     eval{
@@ -24,16 +24,16 @@ sub libxml2_config {
 
     local $| = 1; # autoflush
 
-    print "checking for libxml2 and glib2... ";
-    run(['pkg-config', '--modversion', 'libxml-2.0', 'glib-2.0'], \undef, \(my $ver))   or die "pkg-config: $?";
+    print "checking for glib2... ";
+    run(['pkg-config', '--modversion', 'glib-2.0'], \undef, \(my $ver))   or die "pkg-config: $?";
     print $ver;
 
     print "checking for CFLAGS... ";
-    run(['pkg-config', '--cflags', 'libxml-2.0', 'glib-2.0'], \undef, \(my $cflags)) or die "pkg-config: $?";
+    run(['pkg-config', '--cflags', 'glib-2.0'], \undef, \(my $cflags)) or die "pkg-config: $?";
     print $cflags;
 
     print "checking for LIBS... ";
-    run(['pkg-config', '--libs', 'libxml-2.0', 'glib-2.0'], \undef, \(my $libs  )) or die "pkg-config: $?";
+    run(['pkg-config', '--libs', 'glib-2.0'], \undef, \(my $libs  )) or die "pkg-config: $?";
     print $libs;
 
     return {

@@ -25,7 +25,7 @@ our @EXPORT = qw(
 	deparse_rpc_xml
 );
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 require XSLoader;
 XSLoader::load('RPC::XML::Deparser::XS', $VERSION);
@@ -83,18 +83,13 @@ exported, just say like this:
 
 =head1 PERFORMANCE
 
-L</deparse_rpc_xml> is about 1.7 times faster than C<<
+L</deparse_rpc_xml> is about 3.5 times faster than C<<
 $obj->as_string() >>.
 
 
 =head1 DEPENDENCY
 
 =over 4
-
-=item Libxml2
-
-This is not a perl module. We don't use XML::LibXML. See
-L<http://xmlsoft.org/>.
 
 =item glib2
 

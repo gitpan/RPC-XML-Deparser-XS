@@ -3,10 +3,11 @@
 \.bak$
 \.old$
 \.tar\.gz$
+\.core$
 ~$
 
 (^|/)\.svn($|/)
-(^|/)\.hg($|/)
+(^|/)\.hg(|ignore|tags)($|/)
 ^blib($|/)
 (^|/)Makefile$
 
